@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,36 +6,33 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { Users, TrendingUp, Gift, Plus, Search, Clock } from 'lucide-react';
-
-interface Customer {
-  id: string;
-  phone: string;
-  visits: number;
-  lastVisit: Date;
-  rewardEarned?: boolean;
-}
-
-interface RewardRule {
-  visits: number;
-  description: string;
-  type: 'discount' | 'free_item';
-  value: string;
-}
+import { Users, TrendingUp, Gift, Plus, Search, Clock, LogOut } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { useCustomers } from '@/hooks/useCustomers';
+import { LoginForm } from '@/components/LoginForm';
 
 const Index = () => {
+  const { user, loading: authLoading, signOut } = useAuth();
+  const { customers, loading: customersLoading, addCustomer, addCheckin } = useCustomers();
   const { toast } = useToast();
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [customers, setCustomers] = useState<Customer[]>([
-    { id: '1', phone: '(555) 123-4567', visits: 7, lastVisit: new Date('2024-05-25') },
-    { id: '2', phone: '(555) 987-6543', visits: 3, lastVisit: new Date('2024-05-24') },
-    { id: '3', phone: '(555) 456-7890', visits: 10, lastVisit: new Date('2024-05-23'), rewardEarned: true },
-  ]);
-  
-  const [rewardRules] = useState<RewardRule[]>([
-    { visits: 5, description: '10% Off Next Service', type: 'discount', value: '10%' },
-    { visits: 10, description: 'Free Basic Service', type: 'free_item', value: 'Basic Cut' },
-  ]);
+
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-2 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login form if not authenticated
+  if (!user) {
+    return <LoginForm />;
+  }
 
   const formatPhone = (phone: string) => {
     const cleaned = phone.replace(/\D/g, '');
@@ -47,7 +43,7 @@ const Index = () => {
     return phone;
   };
 
-  const handleCheckin = () => {
+  const handleCheckin = async () => {
     if (!phoneNumber) {
       toast({
         title: "Phone number required",
@@ -60,67 +56,67 @@ const Index = () => {
     const formattedPhone = formatPhone(phoneNumber);
     const existingCustomer = customers.find(c => c.phone === formattedPhone);
 
-    if (existingCustomer) {
-      const updatedCustomers = customers.map(c => 
-        c.phone === formattedPhone 
-          ? { ...c, visits: c.visits + 1, lastVisit: new Date() }
-          : c
-      );
-      setCustomers(updatedCustomers);
-      
-      const newVisits = existingCustomer.visits + 1;
-      const earnedReward = rewardRules.find(r => r.visits === newVisits);
-      
-      if (earnedReward) {
-        toast({
-          title: "🎉 Reward Earned!",
-          description: `Customer earned: ${earnedReward.description}`,
-          duration: 5000
-        });
+    try {
+      if (existingCustomer) {
+        await addCheckin(existingCustomer.id);
+        const newVisits = (existingCustomer.visits || 0) + 1;
+        
+        if (newVisits === 5 || newVisits === 10) {
+          toast({
+            title: "🎉 Reward Earned!",
+            description: newVisits === 5 ? "Customer earned: 10% Off Next Service" : "Customer earned: Free Basic Service",
+            duration: 5000
+          });
+        } else {
+          toast({
+            title: "Visit logged successfully",
+            description: `Customer now has ${newVisits} visits`,
+          });
+        }
       } else {
+        const newCustomer = await addCustomer(formattedPhone);
+        await addCheckin(newCustomer.id);
+        
         toast({
-          title: "Visit logged successfully",
-          description: `Customer now has ${newVisits} visits`,
+          title: "New customer added",
+          description: "First visit logged successfully",
         });
       }
-    } else {
-      const newCustomer: Customer = {
-        id: Date.now().toString(),
-        phone: formattedPhone,
-        visits: 1,
-        lastVisit: new Date()
-      };
-      setCustomers([...customers, newCustomer]);
-      
-      toast({
-        title: "New customer added",
-        description: "First visit logged successfully",
-      });
+
+      setPhoneNumber('');
+    } catch (error) {
+      // Error handling is done in the hooks
     }
-
-    setPhoneNumber('');
-  };
-
-  const getNextReward = (visits: number) => {
-    return rewardRules.find(r => r.visits > visits) || rewardRules[rewardRules.length - 1];
   };
 
   const getProgressPercentage = (visits: number) => {
-    const nextReward = getNextReward(visits);
-    if (!nextReward) return 100;
-    return (visits / nextReward.visits) * 100;
+    if (visits >= 10) return 100;
+    if (visits >= 5) return ((visits - 5) / 5) * 100;
+    return (visits / 5) * 100;
   };
 
-  const totalVisits = customers.reduce((sum, c) => sum + c.visits, 0);
-  const totalRewards = customers.filter(c => c.rewardEarned).length;
+  const getNextRewardText = (visits: number) => {
+    if (visits >= 10) return "Max rewards achieved!";
+    if (visits >= 5) return `${visits}/10 visits to free service`;
+    return `${visits}/5 visits to 10% off`;
+  };
+
+  const totalVisits = customers.reduce((sum, c) => sum + (c.visits || 0), 0);
+  const totalRewards = customers.filter(c => (c.visits || 0) >= 5).length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="container mx-auto p-6 max-w-7xl">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Salon Loyalty Dashboard</h1>
-          <p className="text-gray-600">Manage customer visits and track rewards</p>
+        <div className="mb-8 flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Salon Loyalty Dashboard</h1>
+            <p className="text-gray-600">Manage customer visits and track rewards</p>
+          </div>
+          <Button onClick={signOut} variant="outline" className="flex items-center gap-2">
+            <LogOut className="h-4 w-4" />
+            Sign Out
+          </Button>
         </div>
 
         <Tabs defaultValue="checkin" className="space-y-6">
@@ -192,34 +188,40 @@ const Index = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
-                  {customers.slice(0, 5).map((customer) => {
-                    const nextReward = getNextReward(customer.visits);
-                    const progress = getProgressPercentage(customer.visits);
-                    
-                    return (
-                      <div key={customer.id} className="flex items-center justify-between p-3 border rounded-lg">
-                        <div className="flex-1">
-                          <p className="font-medium">{customer.phone}</p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <Progress value={progress} className="flex-1 h-2" />
-                            <span className="text-sm text-gray-600">
-                              {customer.visits}/{nextReward?.visits} visits
-                            </span>
+                {customersLoading ? (
+                  <div className="text-center py-4">Loading customers...</div>
+                ) : (
+                  <div className="space-y-3">
+                    {customers.slice(0, 5).map((customer) => {
+                      const progress = getProgressPercentage(customer.visits || 0);
+                      
+                      return (
+                        <div key={customer.id} className="flex items-center justify-between p-3 border rounded-lg">
+                          <div className="flex-1">
+                            <p className="font-medium">{customer.phone}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Progress value={progress} className="flex-1 h-2" />
+                              <span className="text-sm text-gray-600">
+                                {getNextRewardText(customer.visits || 0)}
+                              </span>
+                            </div>
                           </div>
+                          <Badge variant={customer.rewardEarned ? "default" : "secondary"}>
+                            {customer.visits || 0} visits
+                          </Badge>
                         </div>
-                        <Badge variant={customer.rewardEarned ? "default" : "secondary"}>
-                          {customer.visits} visits
-                        </Badge>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                    {customers.length === 0 && (
+                      <p className="text-center text-gray-500 py-4">No customers yet. Start by checking in your first customer!</p>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* Customers Tab */}
+          {/* Keep existing tabs content with real data */}
           <TabsContent value="customers" className="space-y-6">
             <Card>
               <CardHeader>
@@ -240,26 +242,25 @@ const Index = () => {
                   
                   <div className="space-y-2">
                     {customers.map((customer) => {
-                      const nextReward = getNextReward(customer.visits);
-                      const progress = getProgressPercentage(customer.visits);
+                      const progress = getProgressPercentage(customer.visits || 0);
                       
                       return (
                         <div key={customer.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
                           <div className="flex-1">
                             <p className="font-medium">{customer.phone}</p>
                             <p className="text-sm text-gray-600">
-                              Last visit: {customer.lastVisit.toLocaleDateString()}
+                              Last visit: {customer.lastVisit?.toLocaleDateString()}
                             </p>
                             <div className="flex items-center gap-2 mt-2">
                               <Progress value={progress} className="flex-1 max-w-xs h-2" />
                               <span className="text-sm text-gray-600">
-                                {customer.visits}/{nextReward?.visits} visits to next reward
+                                {getNextRewardText(customer.visits || 0)}
                               </span>
                             </div>
                           </div>
                           <div className="text-right">
                             <Badge variant={customer.rewardEarned ? "default" : "secondary"}>
-                              {customer.visits} visits
+                              {customer.visits || 0} visits
                             </Badge>
                             {customer.rewardEarned && (
                               <p className="text-sm text-emerald-600 mt-1">Reward earned!</p>
@@ -274,7 +275,6 @@ const Index = () => {
             </Card>
           </TabsContent>
 
-          {/* Rewards Tab */}
           <TabsContent value="rewards" className="space-y-6">
             <Card>
               <CardHeader>
@@ -288,15 +288,20 @@ const Index = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {rewardRules.map((rule, index) => (
-                    <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div>
-                        <p className="font-medium">{rule.description}</p>
-                        <p className="text-sm text-gray-600">After {rule.visits} visits</p>
-                      </div>
-                      <Badge variant="outline">{rule.value}</Badge>
+                  <div className="flex items-center justify-between p-4 border rounded-lg">
+                    <div>
+                      <p className="font-medium">10% Off Next Service</p>
+                      <p className="text-sm text-gray-600">After 5 visits</p>
                     </div>
-                  ))}
+                    <Badge variant="outline">10%</Badge>
+                  </div>
+                  <div className="flex items-center justify-between p-4 border rounded-lg">
+                    <div>
+                      <p className="font-medium">Free Basic Service</p>
+                      <p className="text-sm text-gray-600">After 10 visits</p>
+                    </div>
+                    <Badge variant="outline">Basic Cut</Badge>
+                  </div>
                   
                   <Button variant="outline" className="w-full mt-4">
                     <Plus className="h-4 w-4 mr-2" />
@@ -307,7 +312,6 @@ const Index = () => {
             </Card>
           </TabsContent>
 
-          {/* Analytics Tab */}
           <TabsContent value="analytics" className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <Card>
@@ -352,7 +356,7 @@ const Index = () => {
               <CardContent>
                 <div className="space-y-3">
                   {customers
-                    .sort((a, b) => b.visits - a.visits)
+                    .sort((a, b) => (b.visits || 0) - (a.visits || 0))
                     .slice(0, 5)
                     .map((customer, index) => (
                       <div key={customer.id} className="flex items-center justify-between">
