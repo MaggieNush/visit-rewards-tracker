@@ -55,7 +55,7 @@ export const LoginForm = () => {
               <Input
                 id="email"
                 type="email"
-                value= {'your email'}
+                value= {email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
               />
@@ -65,7 +65,7 @@ export const LoginForm = () => {
               <Input
                 id="password"
                 type="password"
-                value= {'password'}
+                value= {password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
               />
